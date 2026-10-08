@@ -33,33 +33,56 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// We will hand this 'conn' off to our concurrent workers in the next step.
 }
 
-func main() {
-	// Route traffic hitting /ws to our handler
-	http.HandleFunc("/ws", handleWebSocket)
+// func main() {
+// 	// Route traffic hitting /ws to our handler
+// 	http.HandleFunc("/ws", handleWebSocket)
 
-	log.Println("WebSocket server starting on :8080...")
+// 	log.Println("WebSocket server starting on :8080...")
 	
-	// Start the HTTP server. This blocks forever, listening for requests.
-	err := http.ListenAndServe(":8080", nil)
-	if err != nil {
-		log.Fatal("Server failed to start:", err)
-	}
-}
+// 	// Start the HTTP server. This blocks forever, listening for requests.
+// 	err := http.ListenAndServe(":8080", nil)
+// 	if err != nil {
+// 		log.Fatal("Server failed to start:", err)
+// 	}
+// }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+func handleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	room := r.URL.Query().Get("room")
+	if room == "" {
+		http.Error(w, "Room is required", http.StatusBadRequest)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	
-	// Initialize the client
 	client := &Client{
+		hub:  hub,
+		room: room,
 		conn: conn, 
-		send: make(chan []byte, 256), // Buffered channel
+		send: make(chan []byte, 256),
 	}
 
-	// Start the read and write pumps in separate concurrent goroutines
+	client.hub.register <- client // Register with the hub
+
+	// Unregister when readPump exits
+	defer func() { client.hub.unregister <- client }()
+
 	go client.writePump()
 	go client.readPump()
+}
+
+func main() {
+	hub := newHub()
+	go hub.run() // Start the hub in a background goroutine
+
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocket(hub, w, r)
+	})
+
+	log.Println("WebSocket server starting on :8080...")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

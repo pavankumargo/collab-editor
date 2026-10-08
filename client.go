@@ -24,6 +24,8 @@ type Client struct {
 
 	// Buffered channel of outbound messages to send to this specific client.
 	send chan []byte
+	hub  *Hub        
+	room string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -42,7 +44,11 @@ func (c *Client) readPump() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				messagePayload := Message{
+					room:    c.room,
+					payload: message,
+				}
+				c.hub.broadcast <- messagePayload
 			}
 			break
 		}
